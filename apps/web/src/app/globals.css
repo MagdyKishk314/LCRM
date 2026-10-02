@@ -1,0 +1,263 @@
+@import 'tailwindcss';
+
+/**
+ * Design tokens mirrored from landcaller.com.
+ *
+ * The marketing site runs a single dark theme built on a pure-neutral ramp
+ * (chroma 0 throughout) with one vermilion accent, `oklch(62% .2 28)` — #E8523A.
+ * Those exact values are reproduced below.
+ *
+ * Dark is the default here so the app reads as the same product as the site. Light is
+ * offered only to viewers whose OS explicitly asks for it: this is a tool callers sit in
+ * for eight-hour shifts, and forcing one mode on dense data entry is a worse call than
+ * matching the brand slightly less literally.
+ */
+@theme {
+  /* ── Dark: landcaller.com's own tokens, verbatim ─────────────────────── */
+  --color-canvas: oklch(8% 0 0);
+  --color-surface: oklch(12% 0 0);
+  --color-surface-2: oklch(15% 0 0);
+  --color-border: oklch(25% 0 0);
+  --color-border-strong: oklch(33% 0 0);
+
+  --color-fg: oklch(98% 0 0);
+  --color-fg-muted: oklch(65% 0 0);
+  --color-fg-subtle: oklch(52% 0 0);
+
+  /**
+   * The brand vermilion, in three cuts. The site uses one value everywhere because its
+   * buttons carry large display type; this app's buttons carry 13–14px labels, which need
+   * 4.5:1 rather than 3:1.
+   *
+   *   brand       exact site value — decorative fills, dots, rails, focus ring (needs 3:1, has 5.19:1)
+   *   brand-solid darkened just enough that a white label clears AA (3.78:1 -> 4.86:1)
+   *   brand-text  lifted, for accent *text* on a near-black ground (7.79:1)
+   */
+  --color-brand: oklch(62% 0.2 28);
+  --color-brand-solid: oklch(56% 0.2 28);
+  --color-brand-hover: oklch(50% 0.19 28);
+  --color-brand-fg: oklch(98% 0 0);
+  --color-brand-text: oklch(72% 0.17 28);
+  --color-brand-subtle: oklch(20% 0.05 28);
+  --color-brand-border: oklch(38% 0.11 28);
+
+  --color-success: oklch(72% 0.16 152);
+  --color-success-subtle: oklch(20% 0.04 152);
+  --color-warning: oklch(78% 0.14 75);
+  --color-warning-subtle: oklch(22% 0.04 75);
+  --color-danger: oklch(68% 0.19 25);
+  --color-danger-subtle: oklch(21% 0.05 25);
+  --color-info: oklch(70% 0.13 245);
+  --color-info-subtle: oklch(21% 0.04 245);
+
+  --radius-card: 0.75rem;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* Playfair Display, as used on the marketing site. Reserved for display headings —
+     a serif under a dense contact table would cost legibility for no gain. */
+  --font-display: var(--font-playfair), 'Playfair Display', Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/**
+ * Light counterpart. The site has no light mode, so this is designed rather than copied:
+ * the same pure-neutral ramp inverted, with the vermilion darkened to hold contrast
+ * against white — the brand value is tuned for a near-black ground and washes out on paper.
+ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --color-canvas: oklch(98.5% 0 0);
+    --color-surface: oklch(100% 0 0);
+    --color-surface-2: oklch(96.5% 0 0);
+    --color-border: oklch(90% 0 0);
+    --color-border-strong: oklch(82% 0 0);
+
+    --color-fg: oklch(18% 0 0);
+    --color-fg-muted: oklch(45% 0 0);
+    --color-fg-subtle: oklch(58% 0 0);
+
+    --color-brand: oklch(55% 0.2 28);
+    --color-brand-solid: oklch(55% 0.2 28);
+    --color-brand-hover: oklch(49% 0.19 28);
+    --color-brand-fg: oklch(99% 0 0);
+    --color-brand-text: oklch(50% 0.2 28);
+    --color-brand-subtle: oklch(96% 0.03 28);
+    --color-brand-border: oklch(86% 0.08 28);
+
+    --color-success: oklch(52% 0.14 152);
+    --color-success-subtle: oklch(96% 0.03 152);
+    --color-warning: oklch(58% 0.13 75);
+    --color-warning-subtle: oklch(96% 0.04 75);
+    --color-danger: oklch(53% 0.19 25);
+    --color-danger-subtle: oklch(96% 0.03 25);
+    --color-info: oklch(52% 0.14 245);
+    --color-info-subtle: oklch(96% 0.03 245);
+  }
+}
+
+/* Explicit override, so a future in-app toggle wins over the OS in both directions. */
+:root[data-theme='light'] {
+  --color-canvas: oklch(98.5% 0 0);
+  --color-surface: oklch(100% 0 0);
+  --color-surface-2: oklch(96.5% 0 0);
+  --color-border: oklch(90% 0 0);
+  --color-border-strong: oklch(82% 0 0);
+
+  --color-fg: oklch(18% 0 0);
+  --color-fg-muted: oklch(45% 0 0);
+  --color-fg-subtle: oklch(58% 0 0);
+
+  --color-brand: oklch(55% 0.2 28);
+  --color-brand-solid: oklch(55% 0.2 28);
+  --color-brand-hover: oklch(49% 0.19 28);
+  --color-brand-fg: oklch(99% 0 0);
+  --color-brand-text: oklch(50% 0.2 28);
+  --color-brand-subtle: oklch(96% 0.03 28);
+  --color-brand-border: oklch(86% 0.08 28);
+
+  --color-success: oklch(52% 0.14 152);
+  --color-success-subtle: oklch(96% 0.03 152);
+  --color-warning: oklch(58% 0.13 75);
+  --color-warning-subtle: oklch(96% 0.04 75);
+  --color-danger: oklch(53% 0.19 25);
+  --color-danger-subtle: oklch(96% 0.03 25);
+  --color-info: oklch(52% 0.14 245);
+  --color-info-subtle: oklch(96% 0.03 245);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* Tells the browser to paint form controls and scrollbars to match. */
+    color-scheme: dark;
+  }
+
+  @media (prefers-color-scheme: light) {
+    html:not([data-theme='dark']) {
+      color-scheme: light;
+    }
+  }
+
+  html[data-theme='light'] {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Display face, matching the marketing site's headline treatment. */
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /**
+   * Interactive affordances get a pointer.
+   *
+   * Browsers give `<button>` an arrow cursor, not a pointer — only `<a href>` gets one for
+   * free — and Tailwind's Preflight does not change that. Tagging each button by hand means
+   * every new one starts wrong, so the rule lives here once.
+   *
+   * In `@layer base`, so a deliberate utility still wins: the pipeline cards keep their
+   * `cursor-grab`, and drag state keeps `cursor-grabbing`.
+   */
+  button,
+  summary,
+  [role='button'],
+  [role='switch'],
+  [role='menuitem'],
+  [role='option'],
+  [role='tab'],
+  select,
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='file'],
+  label:has(input[type='checkbox']),
+  label:has(input[type='radio']) {
+    cursor: pointer;
+  }
+
+  /* Say "you cannot do this" rather than silently doing nothing. */
+  button:disabled,
+  select:disabled,
+  input:disabled,
+  textarea:disabled,
+  [aria-disabled='true'] {
+    cursor: not-allowed;
+  }
+
+  /* Tabular figures everywhere numbers are compared down a column. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background-color: var(--color-brand-subtle);
+    color: var(--color-fg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+/**
+ * Skeleton colours.
+ *
+ * Deliberately unlayered and targeting `.react-loading-skeleton` directly. The library
+ * declares `--base-color: #ebebeb` on that class itself, so an element-level declaration
+ * beats anything inherited from `:root`, and its stylesheet is unlayered, so a rule inside
+ * `@layer base` would lose to it regardless of source order. Matching the selector and
+ * staying outside the cascade layers is what makes these actually apply — otherwise the
+ * skeletons render as near-white blocks on the dark ground.
+ *
+ * Theming here rather than via <SkeletonTheme> also keeps `loading.tsx` free of a context
+ * provider, so the fallbacks stay server components.
+ */
+.react-loading-skeleton {
+  --base-color: var(--color-surface-2);
+  --highlight-color: var(--color-border);
+  --animation-duration: 1.5s;
+  line-height: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-loading-skeleton {
+    --pseudo-element-display: none;
+    animation: none;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--color-border-strong);
+    border-radius: 9999px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

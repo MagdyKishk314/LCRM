@@ -1,0 +1,8 @@
+# Never ship local env or build artefacts to the platform. Paths are relative to this
+# directory, which is the Vercel project's Root Directory. Only CLI deploys read this;
+# Git deploys upload the repository as committed, where .env is already gitignored.
+.env
+.env.*
+!.env.example
+.next-verify/
+.next-build/

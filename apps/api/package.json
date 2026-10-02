@@ -1,0 +1,62 @@
+{
+  "name": "@landcaller/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts src/seed.ts src/scripts/sync-indexes.ts src/scripts/migrate-fix-plan.ts src/scripts/migrate-contacts-ii.ts --format esm --target node20 --clean --sourcemap",
+    "start": "node dist/index.js",
+    "seed": "tsx src/seed.ts",
+    "create-user": "tsx src/scripts/create-user.ts",
+    "typecheck": "tsc --noEmit",
+    "db:check": "tsx src/scripts/db-check.ts",
+    "test": "tsx --import ./src/test/env.ts --test src/**/*.test.ts",
+    "whoami": "tsx src/scripts/whoami.ts",
+    "cleanup:test-users": "tsx src/scripts/cleanup-test-users.ts",
+    "check:bulkwrite": "tsx src/scripts/check-bulkwrite-isolation.ts",
+    "check:identities": "tsx src/scripts/check-identities.ts",
+    "sync-indexes": "tsx src/scripts/sync-indexes.ts",
+    "migrate:fix-plan": "tsx src/scripts/migrate-fix-plan.ts",
+    "migrate:contacts-ii": "tsx src/scripts/migrate-contacts-ii.ts",
+    "cleanup:bench-contacts": "tsx src/scripts/cleanup-bench-contacts.ts",
+    "clear:import-quota": "tsx src/scripts/clear-import-quota.ts"
+  },
+  "dependencies": {
+    "@landcaller/shared": "workspace:*",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.7.0",
+    "google-auth-library": "^11.0.2",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5",
+    "morgan": "^1.10.0",
+    "nodemailer": "^6.10.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^22.10.7",
+    "@types/nodemailer": "^6.4.17",
+    "@types/supertest": "^7.2.1",
+    "mongodb-memory-server-core": "^11.3.0",
+    "supertest": "^7.3.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "exports": {
+    ".": "./src/app.ts",
+    "./db": "./src/core/db.ts"
+  }
+}

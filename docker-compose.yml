@@ -1,0 +1,65 @@
+services:
+  # MongoDB is NOT self-hosted. The database lives in MongoDB Atlas and is reached over
+  # the connection string in MONGODB_URI. Atlas clusters are replica sets already, so the
+  # transactions this app relies on work without any local bootstrap — and backups,
+  # patching and failover stop being our problem.
+  #
+  # The VPS's public IP must be on the cluster's Atlas access list, or every connection
+  # times out with a server-selection error. See docs/DEPLOY.md.
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      # Required — the container refuses to start without it rather than silently
+      # falling back to a local database that does not exist here.
+      MONGODB_URI: ${MONGODB_URI:?set MONGODB_URI to your Atlas connection string in .env}
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
+      CORS_ORIGINS: https://crm.landcaller.com
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM_DEFAULT: ${EMAIL_FROM_DEFAULT:-LandCaller CRM <no-reply@landcaller.com>}
+    # Bound to loopback only; nginx on the host proxies to it.
+    ports:
+      - "127.0.0.1:4000:4000"
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_URL: https://crm.landcaller.com/api
+        NEXT_PUBLIC_APP_URL: https://crm.landcaller.com
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  redis-data:
