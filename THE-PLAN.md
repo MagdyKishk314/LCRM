@@ -70,20 +70,19 @@ refresh cookie no longer has to be lifted across origins.
 
 | Setting | Value |
 |---|---|
-| Root directory | `apps/web` |
-| Framework | Next.js (detected) |
-| Install command | default — Vercel finds the pnpm workspace at the repository root |
-| Build command | default (`next build`) |
-| Output directory | default (`.next`) |
+| Root directory | repository root (the default) |
+| Framework | Next.js (detected from `package.json`) |
+| Install / build / output | defaults (`npm install`, `next build`, `.next`) |
 
-Config lives in [apps/web/vercel.json](apps/web/vercel.json). Delete the second Vercel project.
+No `vercel.json` is needed. The repository is one Next.js project with one `package.json`;
+the API lives under `src/server` and is served by the same deployment, so there is nothing
+for Vercel to mistake for a second service.
 
-**Why `apps/web` and not the repository root:** Vercel detects Next.js by reading the
-`package.json` in the Root Directory, and `next` is a dependency of `apps/web`, not of the
-workspace root. With the root as Root Directory the build fails with "No Next.js version
-detected". Setting Root Directory to `apps/web` is the supported arrangement for a pnpm
-workspace: install still runs at the workspace root, and files outside the Root Directory
-(`packages/shared`, `apps/api`) are available to the build.
+**History:** this started as a pnpm workspace (`apps/web`, `apps/api`, `packages/shared`).
+Vercel detects Next.js from the `package.json` in its Root Directory, and with the workspace
+root as Root Directory the build failed with "No Next.js version detected"; Vercel then
+offered to treat the folders as two services. The workspace was folded into one project on
+2026-10-02 to make the single-deployment design unambiguous.
 
 ## Environment variables
 
@@ -134,7 +133,7 @@ and `docker-compose.yml` all still work, and the chunked import is an improvemen
 | IMP-11 | Wizard parses locally, uploads sequentially, shows real progress, resumable on failure | done |
 | IMP-12 | Express served from a Next catch-all route, with a cached connection on `globalThis` | done |
 | IMP-13 | Connection pool and boot-failure behaviour depend on the runtime | done |
-| IMP-14 | `vercel.json` and `.vercelignore` in `apps/web` (the Root Directory), conditional `output: standalone` | done |
+| IMP-14 | One project at the repository root, no `vercel.json` needed, conditional `output: standalone` | done |
 | IMP-15 | Same-origin API by default, so no CORS and one set of environment variables | done |
 
 ## Verified

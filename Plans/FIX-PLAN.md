@@ -58,10 +58,10 @@ before FIX-16.
 
 | ID | Change | State |
 |---|---|---|
-| FIX-00a | Get the workspace running: `pnpm install`, `pnpm -r typecheck` and `pnpm -r test` green as a baseline. No `.env` or Atlas database was needed in the end — the tests carry their own environment and database | done |
+| FIX-00a | Get the workspace running: `npm install`, `npm run typecheck` and `npm test` green as a baseline. No `.env` or Atlas database was needed in the end — the tests carry their own environment and database | done |
 | FIX-00b | Add `mongodb-memory-server-core` (replica-set mode, for transactions; the `-core` package so no binary is downloaded during Docker or Vercel builds) and `supertest` to `apps/api`. One helper that boots `createApp()` against it and seeds two agencies, each with two accounts and one user per system role | done |
-| FIX-00c | Tenancy plugin tests: every hook in `READ_HOOKS`, `insertMany`, `bulkWrite`, and the no-context throw. This is the isolation boundary and currently has only a manual script ([check-bulkwrite-isolation.ts](../apps/api/src/scripts/check-bulkwrite-isolation.ts)) | done |
-| FIX-00d | Turn lint back on in builds: remove `eslint: { ignoreDuringBuilds: true }` from [next.config.ts](../apps/web/next.config.ts) once `pnpm lint` is clean. ESLint was not installed at all, so this added it with Next's config. It found five things; one was a real bug — the "Agency console" link was shown to people who had chosen to enter as a sub-account member, because the variable written to hide it was never used | done |
+| FIX-00c | Tenancy plugin tests: every hook in `READ_HOOKS`, `insertMany`, `bulkWrite`, and the no-context throw. This is the isolation boundary and currently has only a manual script ([check-bulkwrite-isolation.ts](../src/server/scripts/check-bulkwrite-isolation.ts)) | done |
+| FIX-00d | Turn lint back on in builds: remove `eslint: { ignoreDuringBuilds: true }` from [next.config.ts](../next.config.ts) once `npm run lint` is clean. ESLint was not installed at all, so this added it with Next's config. It found five things; one was a real bug — the "Agency console" link was shown to people who had chosen to enter as a sub-account member, because the variable written to hide it was never used | done |
 
 The two-agency, two-account seed is what makes the phase 1 tests possible: each one is
 "user from A attempts X on B and gets 403/404".
@@ -72,7 +72,7 @@ The two-agency, two-account seed is what makes the phase 1 tests possible: each 
 
 ### FIX-01 · Sub-account admin can edit sibling sub-accounts
 
-**Where:** [core/index.ts](../apps/api/src/modules/core/index.ts) — `GET /accounts/:id`,
+**Where:** [core/index.ts](../src/server/modules/core/index.ts) — `GET /accounts/:id`,
 `PATCH /accounts/:id`, `PUT /accounts/:id/modules`.
 
 **Cause:** permissions resolve against the `X-Account-Id` account; the handler then acts on
@@ -89,7 +89,7 @@ function assertAccountTarget(ctx: TenantContext, targetId: string) {
 ```
 
 Agency and platform scope keep their current reach. 404 rather than 403, matching
-[layout.tsx](../apps/web/src/app/app/[accountId]/layout.tsx), which avoids confirming that an
+[layout.tsx](../src/app/app/[accountId]/layout.tsx), which avoids confirming that an
 account exists.
 
 **Test:** account admin of A1 → `PATCH /accounts/A2` with `X-Account-Id: A1` returns 404 and
@@ -97,8 +97,8 @@ A2 is unchanged; agency owner doing the same succeeds.
 
 ### FIX-02 · Refused Google sign-ins are never audited
 
-**Where:** [auth.routes.ts:194](../apps/api/src/modules/core/auth.routes.ts#L194),
-`auditLogSchema` in [models/index.ts](../apps/api/src/models/index.ts).
+**Where:** [auth.routes.ts:194](../src/server/modules/core/auth.routes.ts#L194),
+`auditLogSchema` in [models/index.ts](../src/server/models/index.ts).
 
 **Fix:** make `AuditLog.userId` optional (an unauthenticated event has no actor), and replace
 the three `.catch(() => undefined)` calls in this file with a catch that logs — an audit write
@@ -122,14 +122,14 @@ membershipSchema.index({ userId: 1, agencyId: 1, scope: 1 },
   { unique: true, partialFilterExpression: { scope: 'agency' } });
 ```
 
-Run `pnpm --filter @landcaller/api sync-indexes` against each environment; it drops the old
+Run `npm run sync-indexes` against each environment; it drops the old
 index. `resolveAgency` then needs a rule for a user with seats in two agencies — take
 `X-Agency-Id` when present, as the platform branch already does.
 
 ### FIX-04 · Do-not-call state can drift and be bypassed
 
-**Where:** [contacts/index.ts](../apps/api/src/modules/contacts/index.ts) (`PATCH /:id`, bulk
-`status` and `dnc`), [email/index.ts:78](../apps/api/src/modules/email/index.ts#L78).
+**Where:** [contacts/index.ts](../src/server/modules/contacts/index.ts) (`PATCH /:id`, bulk
+`status` and `dnc`), [email/index.ts:78](../src/server/modules/email/index.ts#L78).
 
 **Fix:**
 
@@ -162,8 +162,8 @@ contact is named, which is broader than the plan said and is what the rule shoul
 
 ### FIX-05 · No rate limiting; refresh tokens survive logout
 
-**Where:** [auth.routes.ts](../apps/api/src/modules/core/auth.routes.ts),
-[app.ts](../apps/api/src/app.ts).
+**Where:** [auth.routes.ts](../src/server/modules/core/auth.routes.ts),
+[app.ts](../src/server/app.ts).
 
 **Fix:**
 
@@ -177,7 +177,7 @@ contact is named, which is broader than the plan said and is what the rule shoul
 **Test:** the Nth login attempt inside the window returns 429; a refresh token is rejected
 after logout.
 
-**As built** ([rate-limit.ts](../apps/api/src/core/rate-limit.ts)): sign-in is limited to 10
+**As built** ([rate-limit.ts](../src/server/core/rate-limit.ts)): sign-in is limited to 10
 attempts per account and 100 per address per 15 minutes; refresh to 30 a minute per token;
 invite, Google and sender-confirmation endpoints to 60 per address per 15 minutes.
 
@@ -194,10 +194,10 @@ on purpose. Accepted; the alternative is unlimited guessing.
 ### FIX-06 · Membership role change skips the agency check
 
 **Where:** `PATCH /agency/memberships/:id` in
-[agency.routes.ts](../apps/api/src/modules/core/agency.routes.ts).
+[agency.routes.ts](../src/server/modules/core/agency.routes.ts).
 
 **Fix:** lift the role checks out of
-[invite-service.ts](../apps/api/src/core/auth/invite-service.ts) into
+[invite-service.ts](../src/server/core/auth/invite-service.ts) into
 `assertRoleAssignable(role, agencyId, allowedScopes)` and call it from both. Also refuse
 suspending your own agency membership, as delete already refuses revoking it.
 
@@ -211,7 +211,7 @@ contact exists in this tenant as create does.
 
 ### FIX-08 · Account status is cosmetic
 
-**Where:** `resolveTenant` in [middleware.ts](../apps/api/src/core/auth/middleware.ts).
+**Where:** `resolveTenant` in [middleware.ts](../src/server/core/auth/middleware.ts).
 
 **Fix:** after membership is chosen, an account-scoped member of a `paused` or `archived`
 account gets 403 with a message naming the state. Agency and platform scope pass, or nobody
@@ -259,7 +259,7 @@ other instances (decision D5).
 words only, and the search box queries as you type — "smi" finding nothing until the "th"
 arrives would read as broken.
 
-**As built** ([search.ts](../apps/api/src/modules/contacts/search.ts)): each contact carries
+**As built** ([search.ts](../src/server/modules/contacts/search.ts)): each contact carries
 `searchTokens` — the lowercased words of its name and company, its email, its APN with and
 without separators, and its phone as digits (whole, without a leading 1, last seven, last
 four). A search term becomes an anchored, case-sensitive prefix match on that array, which is
@@ -299,13 +299,13 @@ These are gaps, not defects. Listed so they are tracked, sized roughly.
 
 | ID | Item | Size | State |
 |---|---|---|---|
-| FIX-18 | Email pages read from the API instead of [mock/data.ts](../apps/web/src/lib/mock/data.ts); Compose opens a working form; delete the mock file | M | done |
+| FIX-18 | Email pages read from the API instead of [mock/data.ts](../src/lib/mock/data.ts); Compose opens a working form; delete the mock file | M | done |
 | FIX-19 | Email identity verification — there is no way to mark an identity verified outside the seed. Needs decision D6 | M–L | done |
 | FIX-20 | Honour `templateId` on send (or remove it from the schema); send HTML alongside text | S | done |
 | FIX-21 | Role CRUD endpoints and editor behind `core:role:manage` | M | done |
 | FIX-22 | README says Express 5; the code is on `^4.21.2`. Correct the README | XS | done |
 | FIX-23 | [THE-PLAN.md](../THE-PLAN.md) references `apps/api/api/index.ts`, which does not exist | XS | done |
-| FIX-24 | Comment at [import-export.routes.ts:152](../apps/api/src/modules/contacts/import-export.routes.ts#L152) says `bulkWrite` is deliberately unused, above code that uses it | XS | done |
+| FIX-24 | Comment at [import-export.routes.ts:152](../src/server/modules/contacts/import-export.routes.ts#L152) says `bulkWrite` is deliberately unused, above code that uses it | XS | done |
 
 ---
 
@@ -350,11 +350,11 @@ reverse except D4, which deletes data.
 Run on 2026-09-30, against an in-memory MongoDB 8.2 replica set. Nothing below was run
 against Atlas.
 
-- `pnpm -r test`: **156 tests passing** — 25 shared, 120 API, 11 web. 90 of the API tests are
+- `npm test`: **156 tests passing** — 25 shared, 120 API, 11 web. 90 of the API tests are
   new; 30 existed.
-- `pnpm -r typecheck` clean. `pnpm --filter @landcaller/web lint` clean.
+- `npm run typecheck` clean. `npm run lint` clean.
 - `next build` compiles, lints, type-checks and generates every route.
-- **Tenancy plugin** ([plugin.test.ts](../apps/api/src/core/tenancy/plugin.test.ts)): every
+- **Tenancy plugin** ([plugin.test.ts](../src/server/core/tenancy/plugin.test.ts)): every
   query hook, `insertMany`, `bulkWrite` and `aggregate` is scoped; a query with no context
   throws; a forged `agencyId`/`accountId` on create is overwritten.
 - **FIX-01:** an account admin patching a sibling sub-account gets 404 and the sibling is

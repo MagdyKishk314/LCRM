@@ -177,7 +177,7 @@ mid-call, so reading must be instant and editing must not rearrange the page.
 
 | ID | Change | Size | State |
 |---|---|---|---|
-| CNT-45 | **Calls and texts from telephony.** When the telephony module lands it writes `call` and `sms` history through CNT-13 with recordings, duration and outcome in `metadata`, and the Call / Text actions on the record go live. The contract is in [history.ts](../apps/api/src/modules/contacts/history.ts); the buttons are on the page, greyed with the reason | — | blocked on telephony |
+| CNT-45 | **Calls and texts from telephony.** When the telephony module lands it writes `call` and `sms` history through CNT-13 with recordings, duration and outcome in `metadata`, and the Call / Text actions on the record go live. The contract is in [history.ts](../src/server/modules/contacts/history.ts); the buttons are on the page, greyed with the reason | — | blocked on telephony |
 | CNT-46 | **Inbound email.** Replies land as `inbound` `EmailMessage` rows on the contact's Email tab. Needs the email module's inbound handling (webhook or IMAP); the tab already renders direction and status | — | blocked on email inbound |
 
 ### Where the build departed from the plan
@@ -233,11 +233,11 @@ one that changes the data shape and is the hardest to reverse.
 
 Run on 2026-10-02 against an in-memory MongoDB 8.2 replica set. Nothing was run against Atlas.
 
-- `pnpm -r test`: **195 tests passing** — 35 shared (10 new: filter parsing/description,
+- `npm test`: **195 tests passing** — 35 shared (10 new: filter parsing/description,
   phone normalisation), 149 API (28 new, in
-  [contacts-ii.routes.test.ts](../apps/api/src/modules/contacts/contacts-ii.routes.test.ts)
-  and [derive.test.ts](../apps/api/src/modules/contacts/derive.test.ts)), 11 web.
-- `pnpm -r typecheck` clean; `eslint src` clean; `next build` compiles every route.
+  [contacts-ii.routes.test.ts](../src/server/modules/contacts/contacts-ii.routes.test.ts)
+  and [derive.test.ts](../src/server/modules/contacts/derive.test.ts)), 11 web.
+- `npm run typecheck` clean; `eslint src` clean; `next build` compiles every route.
 - **Phase 0:** phones normalise to digits and alternates never repeat the primary; a legacy
   single `property` is lifted into `properties` as the primary; exactly one parcel is primary;
   the detail endpoint returns owner, definitions, lists, open tasks, upcoming appointments,

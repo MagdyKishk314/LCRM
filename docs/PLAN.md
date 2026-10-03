@@ -11,13 +11,13 @@ Replacing Zoho Suite + GoHighLevel with an in-house, modular, multi-tenant CRM a
 | Stack | MERN — MongoDB + Express + React (via Next.js) + Node |
 | Language | TypeScript everywhere |
 | Frontend | Next.js 15 App Router, React 19, Tailwind v4, shadcn/ui |
-| Backend | Express 4 + Mongoose 8, separate app (`apps/api`) |
+| Backend | Express 4 + Mongoose 8, under `src/server`, served by the Next.js app |
 | Database | MongoDB Atlas (managed; replica set by default, so transactions work) |
 | Cache / queues | Redis + BullMQ (email sending, imports, automations) |
 | Telephony | Twilio, behind a provider adapter interface |
 | Hosting | Hostinger VPS, Docker Compose + nginx + Let's Encrypt |
 | Domain | `crm.landcaller.com` |
-| Repo | pnpm workspaces monorepo |
+| Repo | one Next.js project, one `package.json` |
 
 ### Why a separate Express API instead of Next.js route handlers
 
@@ -76,7 +76,7 @@ overlapping ways so that no single mistake leaks data:
 3. **A response-boundary assertion** in non-production builds re-checks that every document
    leaving a handler matches the request's tenant, and fails loudly in tests.
 
-Rule 2 is the one that matters. It is written once, in `apps/api/src/core/tenancy/`, and every
+Rule 2 is the one that matters. It is written once, in `src/server/core/tenancy/`, and every
 module inherits it for free.
 
 ---
@@ -84,7 +84,7 @@ module inherits it for free.
 ## 3. Module system
 
 Modularity is the headline requirement, so modules are real artifacts, not folders by
-convention. A module is declared once in `packages/shared` and consumed by both apps.
+convention. A module is declared once in `src/shared` and consumed by both apps.
 
 ```ts
 ModuleManifest {
@@ -102,12 +102,12 @@ ModuleManifest {
 }
 ```
 
-**Backend:** each module is a directory under `apps/api/src/modules/<key>/` exporting a
+**Backend:** each module is a directory under `src/server/modules/<key>/` exporting a
 router + models + manifest. `mountModules()` mounts routers under `/api/v1/<key>`, and a
 `requireModule('<key>')` guard rejects requests to a module the current account has disabled —
 so disabling a module in the UI genuinely closes the API surface, it does not just hide a link.
 
-**Frontend:** `packages/shared` exports the same manifests. The sidebar is generated from the
+**Frontend:** `src/shared` exports the same manifests. The sidebar is generated from the
 effective module set × the user's permissions. Module routes live under
 `app/(app)/[accountId]/<key>/` and are guarded by the same effective-set check.
 
@@ -229,7 +229,7 @@ it wrong differently.
 | API | One service holds the rules that must never differ. Routes are adapters: they decide *who may call* and *what this surface permits*, then hand over. | `core/auth/invite-service.ts` owns token issue, resend-vs-conflict, audit, and returning the link once. The two routes only set `allowedScopes` and audit names. |
 | Web | One hook owns the side effects. Screens own layout and their own inline errors — nothing else. | `useInvite()` calls the action, shows the link, refreshes. Screens never import the invite actions. |
 | Mount | Anything the user must not miss renders above the page, not inside the caller. | `<InviteProvider>` sits in the root layout, so no screen's layout can clip it and its state survives the `revalidatePath` the invite triggers. |
-| Guard | A test asserts screens cannot bypass the shared path. | `apps/web/src/lib/capabilities.test.ts` — add a row to `CAPABILITIES`, and a direct import fails the build with the fix in the message. |
+| Guard | A test asserts screens cannot bypass the shared path. | `src/lib/capabilities.test.ts` — add a row to `CAPABILITIES`, and a direct import fails the build with the fix in the message. |
 
 ### When it applies
 
@@ -246,10 +246,10 @@ aggregate differently and have no side effect to forget.
 
 1. Move the rules into a service (API) or hook (web).
 2. Make the routes/screens adapters over it.
-3. Add a row to `CAPABILITIES` in `apps/web/src/lib/capabilities.test.ts` naming the
+3. Add a row to `CAPABILITIES` in `src/lib/capabilities.test.ts` naming the
    symbols only the owner may import.
 4. Confirm the guard fails — temporarily import the restricted symbol from a screen and run
-   `pnpm --filter @landcaller/web test`. A guard that cannot fail is not a guard.
+   `npm test`. A guard that cannot fail is not a guard.
 
 ---
 
@@ -266,7 +266,7 @@ aggregate differently and have no side effect to forget.
 | 6 | Zoho + GHL data migration scripts, parallel run, cutover |
 
 Phases 1–2 before 3–4 is deliberate and matches the request: the frontend is built against a
-typed contract from `packages/shared`, so the API is written to satisfy an interface that
+typed contract from `src/shared`, so the API is written to satisfy an interface that
 already exists rather than the reverse.
 
 ---

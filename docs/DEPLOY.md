@@ -79,7 +79,7 @@ nano .env   # fill in SMTP_* for the email module
 
 docker compose build
 docker compose up -d
-docker compose ps         # api and web should be healthy
+docker compose ps         # web should be healthy
 curl -s localhost:4000/health
 ```
 
@@ -103,10 +103,14 @@ Certbot installs a renewal timer automatically. Confirm with
 ## 6. Seed the first agency
 
 The seed script refuses to run with `NODE_ENV=production`, which is correct — it
-wipes and rebuilds its tenant. For the genuine first-run bootstrap, run it explicitly:
+wipes and rebuilds its tenant. The production image is a standalone Next.js server and
+does not carry the scripts, so run them from any machine with the repository checked out
+and `.env` pointed at the production cluster (the VPS itself works, with Node installed):
 
 ```bash
-docker compose run --rm -e NODE_ENV=development api node apps/api/dist/seed.js
+npm install
+npm run sync-indexes
+NODE_ENV=development npm run seed
 ```
 
 It prints the login for the agency owner. **Change that password immediately** — it is
@@ -129,25 +133,17 @@ docker image prune -f
 ### Indexes and data migrations
 
 The app does not change indexes or rewrite data on boot. When a release changes either,
-run these after deploying the new code:
+run these after deploying the new code, from a machine whose `.env` points at the
+production cluster (the same applies on Vercel, where there is no container to run them in):
 
 ```bash
 # Build new indexes and drop ones the schemas no longer declare. Safe to re-run.
-docker compose run --rm api node apps/api/dist/scripts/sync-indexes.js
+npm run sync-indexes
 
 # One-off migration for the fix plan (Plans/FIX-PLAN.md). Dry run first — it reports what
 # it would change and writes nothing — then apply.
-docker compose run --rm api node apps/api/dist/scripts/migrate-fix-plan.js
-docker compose run --rm api node apps/api/dist/scripts/migrate-fix-plan.js --apply
-```
-
-On Vercel there is no container to run them in. Run the same scripts from a machine whose
-`.env` points at the production cluster:
-
-```bash
-pnpm --filter @landcaller/api sync-indexes
-pnpm --filter @landcaller/api migrate:fix-plan            # dry run
-pnpm --filter @landcaller/api migrate:fix-plan -- --apply
+npm run migrate:fix-plan
+npm run migrate:fix-plan -- --apply
 ```
 
 **The fix-plan migration is required once.** Until it has run, contacts created before the
@@ -157,10 +153,8 @@ The Contacts II release (Plans/CONTACTS-PLAN.md) has its own one-off migration, 
 way after `sync-indexes`:
 
 ```bash
-docker compose run --rm api node apps/api/dist/scripts/migrate-contacts-ii.js          # dry run
-docker compose run --rm api node apps/api/dist/scripts/migrate-contacts-ii.js --apply
-# or, from a machine with .env pointed at production:
-pnpm --filter @landcaller/api migrate:contacts-ii -- --apply
+npm run migrate:contacts-ii            # dry run
+npm run migrate:contacts-ii -- --apply
 ```
 
 Until it has run, contacts from before the release have no normalised phone digits (so they
@@ -183,9 +177,8 @@ There is no `mongodump` cron on the VPS any more; the box holds no database.
 ## Operations
 
 ```bash
-docker compose logs -f api          # tail the API
-docker compose logs -f web
-docker compose restart api
+docker compose logs -f web          # pages and the API, one process
+docker compose restart web
 # DB shell: Atlas -> Cluster -> Connect -> mongosh, or the Atlas Data Explorer
 ```
 
