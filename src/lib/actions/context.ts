@@ -2,21 +2,23 @@
 
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { CONTEXT_COOKIE, cookieOptions, REFRESH_MAX_AGE } from '@/lib/api/cookies';
+import { issueContext } from '@/lib/api/context';
+import { CONTEXT_COOKIE } from '@/lib/api/cookies';
 
 /**
  * Record which context the user chose, then take them there.
  *
- * The cookie only ever *narrows* what the session resolves to — the API ignores a context
- * the user does not actually hold — so this is a preference, not a permission.
+ * Entering asks the API for a context token (see `lib/api/context`), which is where the
+ * seat is resolved and checked. The choice is kept in the token as a hint, and only ever
+ * *narrows* what the session resolves to — the API ignores a context the user does not
+ * actually hold.
  */
 export async function enterContext(type: 'agency' | 'account', id: string | null) {
-  const store = await cookies();
-
-  store.set(CONTEXT_COOKIE, type === 'agency' ? 'agency' : `account:${id ?? ''}`, {
-    ...cookieOptions,
-    maxAge: REFRESH_MAX_AGE,
-  });
+  if (type === 'account' && id) {
+    await issueContext({ type: 'account', accountId: id, hint: `account:${id}` });
+  } else {
+    await issueContext({ type: 'agency', hint: 'agency' });
+  }
 
   redirect(type === 'agency' ? '/agency' : `/app/${id}`);
 }

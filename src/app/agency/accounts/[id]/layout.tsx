@@ -57,10 +57,10 @@ export default async function AgencyAccountLayout({
             </p>
           </div>
 
-          {/* Managing from here is the point; opening the client's own CRM is the escape hatch. */}
+          {/* Managing from here is the point; opening the client's own workspace is the escape hatch. */}
           <Link href={`/app/${account.id}`}>
             <Button variant="outline" size="sm">
-              Open this CRM <ExternalLink size={13} />
+              Open this account <ExternalLink size={13} />
             </Button>
           </Link>
         </div>

@@ -10,10 +10,15 @@ import {
   authenticate,
   contextHint,
   loadAgency,
+  loadMemberships,
   loadPlan,
   loadRole,
   pickMembership,
+  resolveAccountContext,
+  resolveAgencyContext,
 } from '../../core/auth/middleware';
+import { CONTEXT_TOKEN_TTL_SECONDS, signContextToken } from '../../core/auth/context-token';
+import { cached } from '../../core/cache';
 import { signAccessToken, verifyRefreshToken } from '../../core/auth/jwt';
 import { REFRESH_COOKIE, issueSession } from '../../core/auth/session';
 import { exchangeGoogleCode, googleAuthUrl, googleEnabled } from '../../core/auth/google';
@@ -27,7 +32,7 @@ import {
   loginByIp,
   refreshByToken,
 } from '../../core/rate-limit';
-import { Account, AuditLog, Membership, User, hashPassword } from '../../models';
+import { Account, AuditLog, User, hashPassword } from '../../models';
 
 export const authRouter = Router();
 
@@ -399,6 +404,61 @@ authRouter.delete(
   }),
 );
 
+const contextRequestSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('agency'), agencyId: z.string().optional() }),
+  z.object({ type: z.literal('account'), accountId: z.string() }),
+]).and(z.object({ hint: z.string().max(40).optional() }));
+
+/**
+ * Enter a context: resolve the seat once, and hand back a token that proves it.
+ *
+ * This is where the agency's standing, its plan and the seat's role are checked — not on
+ * every request. The web layer stores the token in a cookie and sends it as `X-Context`;
+ * it reissues it before it expires, and whenever the user moves to a context it does not
+ * cover. See `core/auth/context-token.ts` for what that settles and for how long.
+ *
+ * A platform seat is not tokenised (it names no agency), so `token` is null for one and the
+ * request is resolved the long way each time.
+ */
+authRouter.post(
+  '/context',
+  authenticate,
+  handler(async (req, res) => {
+    const input = contextRequestSchema.parse(req.body);
+    const userId = req.userId!;
+
+    const resolved =
+      input.type === 'agency'
+        ? await resolveAgencyContext(userId, input.agencyId)
+        : await resolveAccountContext(userId, input.accountId, input.hint);
+
+    const scope = resolved.membership.scope;
+    if (scope === 'platform') {
+      res.json({ token: null, scope, expiresAt: null });
+      return;
+    }
+
+    const token = signContextToken({
+      sub: userId,
+      kind: 'ctx',
+      scope,
+      agencyId: String(resolved.agency._id),
+      ...(scope === 'account' && input.type === 'account' ? { accountId: input.accountId } : {}),
+      modules: resolved.modules,
+      permissions: resolved.permissions,
+      ...(input.hint ? { hint: input.hint } : {}),
+    });
+
+    res.json({
+      token,
+      scope,
+      agencyId: String(resolved.agency._id),
+      accountId: scope === 'account' && input.type === 'account' ? input.accountId : null,
+      expiresAt: new Date(Date.now() + CONTEXT_TOKEN_TTL_SECONDS * 1000).toISOString(),
+    });
+  }),
+);
+
 /** A lean record in the shape `toJSON` gives a document: `id`, no `_id`, no `__v`. */
 function publicRecord<T extends { _id: unknown }>(record: T): Omit<T, '_id'> & { id: string } {
   const { _id, __v: _version, ...rest } = record as T & { __v?: unknown };
@@ -419,7 +479,7 @@ authRouter.get(
     const user = req.user;
     if (!user) throw unauthorized();
 
-    const memberships = await Membership.find({ userId: req.userId, status: 'active' });
+    const memberships = await loadMemberships(req.userId!);
 
     /**
      * Whether this person can use the agency console at all.
@@ -461,16 +521,21 @@ authRouter.get(
      *
      * These ran one after another — accounts, then agencies, then roles, then the plan —
      * and every page load paid for the whole chain against a database a hundred-odd
-     * milliseconds away. Agencies, roles and plans come through the record cache, so on a
-     * warm instance only the account list actually leaves the process.
+     * milliseconds away. All of it now comes through the record cache — the account list
+     * keyed by user, and dropped whenever an account or a membership is written — so on a
+     * warm instance the session is answered without leaving the process.
      */
     const [reachable, agencyList, roleList] = await Promise.all([
-      Account.find({
-        $or: [
-          { _id: { $in: accountScopedIds } },
-          { agencyId: { $in: agencyScopedAgencyIds } },
-        ],
-      }).sort({ name: 1 }),
+      cached('ReachableAccounts', req.userId!, () =>
+        Account.find({
+          $or: [
+            { _id: { $in: accountScopedIds } },
+            { agencyId: { $in: agencyScopedAgencyIds } },
+          ],
+        })
+          .sort({ name: 1 })
+          .lean(),
+      ),
       Promise.all(agencyIds.map(loadAgency)),
       Promise.all(roleIds.map(loadRole)),
     ]);
@@ -609,7 +674,7 @@ authRouter.get(
       })),
       // A cached, lean record: given the `id` shape every other response has.
       activeAgency: activeAgency ? publicRecord(activeAgency) : null,
-      activeAccount: active ?? null,
+      activeAccount: active ? publicRecord(active) : null,
       enabledModules,
       permissions,
       scope,

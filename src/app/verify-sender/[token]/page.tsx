@@ -26,7 +26,7 @@ export default async function VerifySenderPage({
             <Signal size={22} className="text-brand-fg" />
           </div>
           <h1 className="font-display text-[26px] leading-tight text-fg">Confirm this address</h1>
-          <p className="mt-1 text-sm text-fg-muted">LandCaller CRM</p>
+          <p className="mt-1 text-sm text-fg-muted">LandCaller</p>
         </div>
 
         <ConfirmSender token={token} />

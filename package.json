@@ -16,6 +16,8 @@
     "migrate:fix-plan": "tsx src/server/scripts/migrate-fix-plan.ts",
     "migrate:contacts-ii": "tsx src/server/scripts/migrate-contacts-ii.ts",
     "db:check": "tsx src/server/scripts/db-check.ts",
+    "db:local": "tsx src/server/scripts/local-mongo.ts",
+    "db:copy": "tsx src/server/scripts/copy-db.ts",
     "whoami": "tsx src/server/scripts/whoami.ts",
     "cleanup:test-users": "tsx src/server/scripts/cleanup-test-users.ts",
     "cleanup:bench-contacts": "tsx src/server/scripts/cleanup-bench-contacts.ts",

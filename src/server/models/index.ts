@@ -17,6 +17,16 @@ const timestamps = { timestamps: true } as const;
  */
 function evictOnWrite(schema: Schema, kind: string) {
   schema.post('save', (doc: { _id: unknown }) => evict(kind, String(doc._id)));
+  evictKindOnWrite(schema, kind, { save: false });
+}
+
+/**
+ * The same, for entries that are not keyed by the document's own id — a user's membership
+ * list, the sub-accounts a user can reach. No write can say which of those it invalidates,
+ * so every write clears the kind.
+ */
+function evictKindOnWrite(schema: Schema, kind: string, { save = true } = {}) {
+  if (save) schema.post('save', () => evict(kind));
   for (const hook of [
     'updateOne',
     'updateMany',
@@ -24,9 +34,12 @@ function evictOnWrite(schema: Schema, kind: string) {
     'findOneAndDelete',
     'deleteOne',
     'deleteMany',
+    'insertMany',
   ] as const) {
     (schema.post as any)(hook, () => evict(kind));
   }
+  // `doc.deleteOne()` is document middleware, which the query hook above does not cover.
+  (schema.post as any)('deleteOne', { document: true, query: false }, () => evict(kind));
 }
 
 // ── Identity & tenancy (not tenant-scoped — these define the tenants) ────────
@@ -104,6 +117,8 @@ userSchema.index(
  *
  * Invited users are exempt: they have neither yet, which is the whole point of an invite.
  */
+evictOnWrite(userSchema, 'User');
+
 userSchema.pre('validate', function (this: any, next: (err?: Error) => void) {
   const hasPassword = Boolean(this.passwordHash);
   const hasIdentity = Array.isArray(this.identities) && this.identities.length > 0;
@@ -195,6 +210,7 @@ const accountSchema = new Schema(
 );
 accountSchema.index({ agencyId: 1, slug: 1 }, { unique: true });
 evictOnWrite(accountSchema, 'Account');
+evictKindOnWrite(accountSchema, 'ReachableAccounts');
 
 const roleSchema = new Schema(
   {
@@ -236,6 +252,8 @@ const membershipSchema = new Schema(
  * which carry no `accountId`, all collided on `{ userId, accountId: null }`, so nobody could
  * hold an agency seat in a second agency. Partial filters say what is actually meant.
  */
+evictKindOnWrite(membershipSchema, 'Memberships');
+evictKindOnWrite(membershipSchema, 'ReachableAccounts');
 membershipSchema.index(
   { userId: 1, accountId: 1 },
   { unique: true, partialFilterExpression: { accountId: { $type: 'string' } } },
@@ -681,6 +699,15 @@ const rateLimitHitSchema = new Schema({
 rateLimitHitSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // ── Exports ─────────────────────────────────────────────────────────────────
+
+/**
+ * Mongoose is one instance per process, but this module is not evaluated once per process:
+ * the dev server re-evaluates it whenever it recompiles a route, and registering a name a
+ * second time throws OverwriteModelError. Dropping the earlier registrations first lets the
+ * models below be rebuilt from the schemas as they are now. Nothing is registered on a
+ * first evaluation, so this is a no-op in production and in tests.
+ */
+for (const name of mongoose.modelNames()) mongoose.deleteModel(name);
 
 export const User = mongoose.model('User', userSchema);
 export const Plan = mongoose.model('Plan', planSchema);

@@ -57,7 +57,7 @@ const schema = z.object({
   SMTP_PORT: z.coerce.number().optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  EMAIL_FROM_DEFAULT: z.string().default('LandCaller CRM <no-reply@landcaller.com>'),
+  EMAIL_FROM_DEFAULT: z.string().default('LandCaller <no-reply@landcaller.com>'),
 });
 
 const parsed = schema.safeParse(process.env);

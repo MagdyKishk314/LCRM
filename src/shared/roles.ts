@@ -90,7 +90,7 @@ export const SYSTEM_ROLES: SystemRoleDef[] = [
   {
     key: 'account_user',
     name: 'Sub-account user',
-    description: 'Day-to-day CRM work inside one sub-account.',
+    description: 'Day-to-day work inside one sub-account.',
     scope: 'account',
     permissions: [
       'contacts:contact:read',

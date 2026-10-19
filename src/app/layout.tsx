@@ -18,8 +18,8 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: 'LandCaller CRM',
-  description: 'Modular multi-tenant CRM for land investing teams.',
+  title: 'LandCaller',
+  description: 'Contacts, pipelines and email for land investing teams.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

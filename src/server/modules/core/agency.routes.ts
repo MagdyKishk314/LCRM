@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { requirePermission, resolveAgency } from '../../core/auth/middleware';
+import { loadPlan, requirePermission, resolveAgency } from '../../core/auth/middleware';
 import { badRequest, handler, notFound } from '../../core/errors';
 import { assignableRole, inviteUserToScope } from '../../core/auth/invite-service';
 import {
@@ -50,21 +50,24 @@ agencyRouter.get(
   handler(async (req, res) => {
     const ctx = req.tenant!;
 
-    const [agency, accounts] = await Promise.all([
-      Agency.findById(ctx.agencyId),
-      Account.find({ agencyId: ctx.agencyId }).sort({ name: 1 }),
-    ]);
-    if (!agency) throw notFound('Agency');
-
-    const plan = await Plan.findById(agency.planId);
-
+    // Asked for together: none of these depends on another, and in a row they were five
+    // trips to the database before the console could draw.
+    //
     // Seats only. The console administers sub-accounts; it does not report on the CRM
     // data inside them — contact and pipeline figures belong to each client, in their
     // own CRM, and mean nothing side by side across unrelated businesses.
-    const memberRows = await Membership.aggregate([
-      { $match: { agencyId: ctx.agencyId, scope: 'account', status: 'active' } },
-      { $group: { _id: '$accountId', n: { $sum: 1 } } },
+    const [agency, accounts, memberRows, agencyUsers] = await Promise.all([
+      Agency.findById(ctx.agencyId),
+      Account.find({ agencyId: ctx.agencyId }).sort({ name: 1 }),
+      Membership.aggregate([
+        { $match: { agencyId: ctx.agencyId, scope: 'account', status: 'active' } },
+        { $group: { _id: '$accountId', n: { $sum: 1 } } },
+      ]),
+      Membership.countDocuments({ agencyId: ctx.agencyId, scope: 'agency', status: 'active' }),
     ]);
+    if (!agency) throw notFound('Agency');
+
+    const plan = await loadPlan(String(agency.planId));
 
     const members = new Map(memberRows.map((r) => [String(r._id), r]));
 
@@ -80,12 +83,6 @@ agencyRouter.get(
         users: members.get(id)?.n ?? 0,
         createdAt: a.createdAt,
       };
-    });
-
-    const agencyUsers = await Membership.countDocuments({
-      agencyId: ctx.agencyId,
-      scope: 'agency',
-      status: 'active',
     });
 
     res.json({

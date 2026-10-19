@@ -306,7 +306,7 @@ async function sendVerification(
   const url = `${env.APP_URL.replace(/\/+$/, '')}/verify-sender/${token}`;
   const text =
     `Someone asked to send email as "${identity.fromName}" <${identity.fromEmail}> ` +
-    `from LandCaller CRM.\n\nIf that was you, confirm the address:\n${url}\n\n` +
+    `from LandCaller.\n\nIf that was you, confirm the address:\n${url}\n\n` +
     `The link works for ${INVITE_TTL_DAYS} days. If it was not you, ignore this message ` +
     'and nothing will be sent from this address.';
 

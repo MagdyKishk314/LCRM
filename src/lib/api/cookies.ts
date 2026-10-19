@@ -6,20 +6,35 @@
 
 export const ACCESS_COOKIE = 'lc_at';
 /**
- * Which context the user chose at login: `agency`, or `account:<id>`.
+ * The context the user is in — an agency console or a sub-account — as a token the API
+ * issued when they entered it (`POST /core/auth/context`).
  *
- * One identity can hold several memberships. This records which one they picked so the
- * session resolves to that role and no other — entering as a sub-account user means
- * sub-account permissions, even when the same person is also an agency owner.
+ * The token settles which seat the user holds there and what it permits, so the API can
+ * verify a signature on each request instead of re-reading the tenancy tree. It is sent as
+ * `X-Context`, and `middleware.ts` reissues it before it expires or when the user moves
+ * to a context it does not cover.
  *
- * Only ever *narrows*: the API ignores a context the user does not actually hold, so a
- * forged cookie cannot grant anything.
+ * It records the choice made at login too: entering as a sub-account user means
+ * sub-account permissions, even when the same person is also an agency owner. That can
+ * only ever *narrow* — the API ignores a context the user does not actually hold.
  */
 export const CONTEXT_COOKIE = 'lc_ctx';
 export const REFRESH_COOKIE = 'lc_rt';
 
 export const ACCESS_MAX_AGE = 60 * 60; // Cookie outlives the 15m token; expiry is checked from the JWT itself.
+export const CONTEXT_MAX_AGE = 60 * 60; // Likewise: the token's own `exp` (10m) is what counts.
 export const REFRESH_MAX_AGE = 30 * 24 * 60 * 60;
+
+/** What the API put in a context token. Mirrors `ContextClaims` on the server. */
+export interface ContextCookieClaims {
+  sub: string;
+  kind: 'ctx';
+  scope: 'agency' | 'account';
+  agencyId: string;
+  accountId?: string;
+  hint?: string;
+  exp?: number;
+}
 
 export const cookieOptions = {
   httpOnly: true,
@@ -29,22 +44,26 @@ export const cookieOptions = {
 };
 
 /**
- * Read `exp` from a JWT without verifying it.
+ * Read a JWT's payload without verifying it.
  *
- * Only ever used to decide *when to refresh* — the API verifies the signature on every
- * request, so a forged token read here buys nothing.
+ * Only ever used to decide *when to refresh* and *which context to ask for* — the API
+ * verifies the signature on every request, so a forged token read here buys nothing.
  */
-export function tokenExpiry(token: string): number | null {
-  const part = token.split('.')[1];
+export function decodeToken<T extends object>(token: string | undefined): T | null {
+  const part = token?.split('.')[1];
   if (!part) return null;
 
   try {
     const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
-    const payload = JSON.parse(json) as { exp?: number };
-    return typeof payload.exp === 'number' ? payload.exp : null;
+    return JSON.parse(json) as T;
   } catch {
     return null;
   }
+}
+
+export function tokenExpiry(token: string): number | null {
+  const payload = decodeToken<{ exp?: number }>(token);
+  return typeof payload?.exp === 'number' ? payload.exp : null;
 }
 
 /** True when the token is missing, unreadable, or expires within `skewSeconds`. */

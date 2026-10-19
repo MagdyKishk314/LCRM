@@ -13,6 +13,7 @@ import {
 } from '@/shared';
 import {
   authenticate,
+  loadMemberships,
   requirePermission,
   resolveTenant,
 } from '../../core/auth/middleware';
@@ -99,7 +100,7 @@ router.get(
   handler(async (req, res) => {
     // Scoped by membership rather than by the tenancy plugin: this endpoint spans
     // sub-accounts, so it runs before a single account is selected.
-    const memberships = await Membership.find({ userId: req.userId, status: 'active' });
+    const memberships = await loadMemberships(req.userId!);
 
     const accountIds = memberships
       .filter((m) => m.scope === 'account')
@@ -608,62 +609,62 @@ router.get(
 
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    const [contactCount, qualifiedCount, newThisMonth] = enabled.has('contacts')
-      ? await Promise.all([
-          Contact.countDocuments({}),
-          Contact.countDocuments({ status: 'qualified' }),
-          Contact.countDocuments({ createdAt: { $gte: since } }),
-        ])
-      : [0, 0, 0];
-
-    let pipeline: {
+    type PipelineSummary = {
       name: string;
       stages: { id: string; name: string; count: number; value: number; probability: number }[];
       openValue: number;
       weightedValue: number;
       openCount: number;
-    } | null = null;
+    };
 
-    if (enabled.has('pipelines')) {
-      const defaultPipeline =
-        (await Pipeline.findOne({ isDefault: true })) ?? (await Pipeline.findOne({}));
+    async function pipelineSummary(): Promise<PipelineSummary | null> {
+      // The default pipeline, or failing that any pipeline: `isDefault` sorts first.
+      const defaultPipeline = await Pipeline.findOne({}).sort({ isDefault: -1 });
+      if (!defaultPipeline) return null;
 
-      if (defaultPipeline) {
-        // Summed by the database rather than by loading every open card to add them up
-        // here. The tenancy plugin prepends the tenant `$match` to the pipeline.
-        const totals: { _id: string; count: number; value: number }[] =
-          await Opportunity.aggregate([
-            { $match: { pipelineId: String(defaultPipeline._id), status: 'open' } },
-            { $group: { _id: '$stageId', count: { $sum: 1 }, value: { $sum: '$value' } } },
-          ]);
-        const byStage = new Map(totals.map((t) => [t._id, t]));
+      // Summed by the database rather than by loading every open card to add them up
+      // here. The tenancy plugin prepends the tenant `$match` to the pipeline.
+      const totals: { _id: string; count: number; value: number }[] = await Opportunity.aggregate([
+        { $match: { pipelineId: String(defaultPipeline._id), status: 'open' } },
+        { $group: { _id: '$stageId', count: { $sum: 1 }, value: { $sum: '$value' } } },
+      ]);
+      const byStage = new Map(totals.map((t) => [t._id, t]));
 
-        const stages = defaultPipeline.stages
-          .slice()
-          .sort((a, b) => a.order - b.order)
-          .map((s) => ({
-            id: s.id,
-            name: s.name,
-            probability: s.probability,
-            count: byStage.get(s.id)?.count ?? 0,
-            value: byStage.get(s.id)?.value ?? 0,
-          }));
+      const stages = defaultPipeline.stages
+        .slice()
+        .sort((a, b) => a.order - b.order)
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          probability: s.probability,
+          count: byStage.get(s.id)?.count ?? 0,
+          value: byStage.get(s.id)?.value ?? 0,
+        }));
 
-        pipeline = {
-          name: defaultPipeline.name,
-          stages,
-          openCount: stages.reduce((sum, s) => sum + s.count, 0),
-          openValue: stages.reduce((sum, s) => sum + s.value, 0),
-          weightedValue: Math.round(
-            stages.reduce((sum, s) => sum + s.value * (s.probability / 100), 0),
-          ),
-        };
-      }
+      return {
+        name: defaultPipeline.name,
+        stages,
+        openCount: stages.reduce((sum, s) => sum + s.count, 0),
+        openValue: stages.reduce((sum, s) => sum + s.value, 0),
+        weightedValue: Math.round(
+          stages.reduce((sum, s) => sum + s.value * (s.probability / 100), 0),
+        ),
+      };
     }
 
-    const activities = enabled.has('contacts')
-      ? await Activity.find({}).sort({ occurredAt: -1 }).limit(6)
-      : [];
+    // The three sections do not depend on one another, so they are asked for together —
+    // the page waits for the slowest of them rather than for all of them in a row.
+    const [[contactCount, qualifiedCount, newThisMonth], pipeline, activities] = await Promise.all([
+      enabled.has('contacts')
+        ? Promise.all([
+            Contact.countDocuments({}),
+            Contact.countDocuments({ status: 'qualified' }),
+            Contact.countDocuments({ createdAt: { $gte: since } }),
+          ])
+        : [0, 0, 0],
+      enabled.has('pipelines') ? pipelineSummary() : null,
+      enabled.has('contacts') ? Activity.find({}).sort({ occurredAt: -1 }).limit(6) : [],
+    ]);
 
     res.json({
       contacts: { total: contactCount, qualified: qualifiedCount, newThisMonth },

@@ -10,6 +10,7 @@ import { Account, Agency, Membership, Plan, Role, User } from '../../models';
 import { cached } from '../cache';
 import { forbidden, unauthorized } from '../errors';
 import { runInTenantContext, type TenantContext } from '../tenancy/context';
+import { looksLikeJwt, verifyContextToken, type ContextClaims } from './context-token';
 import { verifyAccessToken } from './jwt';
 
 // Lean reads: a cached value is shared between requests, and a plain object cannot be
@@ -17,9 +18,25 @@ import { verifyAccessToken } from './jwt';
 export const loadAgency = (id: string) => cached('Agency', id, () => Agency.findById(id).lean());
 export const loadRole = (id: string) => cached('Role', id, () => Role.findById(id).lean());
 export const loadPlan = (id: string) => cached('Plan', id, () => Plan.findById(id).lean());
+export const loadAccount = (id: string) =>
+  cached('Account', id, () => Account.findById(id).lean());
+
+/**
+ * Who is calling, and which seats they hold — read on every request, so read through the
+ * cache. Suspending a user or changing a membership evicts these on the instance that did
+ * it; see `core/cache` for how long another instance may lag.
+ */
+export const loadUser = (id: string) => cached('User', id, () => User.findById(id).lean());
+export const loadMemberships = (userId: string) =>
+  cached('Memberships', userId, () =>
+    Membership.find({ userId, status: 'active' }).sort({ createdAt: 1 }).lean(),
+  );
 
 /** The user `authenticate` loaded, so later stages need not fetch it again. */
-type AuthenticatedUser = InstanceType<typeof User>;
+type AuthenticatedUser = NonNullable<Awaited<ReturnType<typeof loadUser>>>;
+type AccountRecord = NonNullable<Awaited<ReturnType<typeof loadAccount>>>;
+type AgencyRecord = NonNullable<Awaited<ReturnType<typeof loadAgency>>>;
+type MembershipRecord = Awaited<ReturnType<typeof loadMemberships>>[number];
 
 /** Most authority first. Used wherever several memberships apply to one context. */
 const SCOPE_RANK: Record<string, number> = { platform: 0, agency: 1, account: 2 };
@@ -64,9 +81,24 @@ export function pickMembership<T extends { scope: string }>(
   return strongestMembership(memberships);
 }
 
-/** The context the caller chose at login, if any. */
+/**
+ * The context the caller presents.
+ *
+ * `X-Context` carries either a context token (see `context-token.ts`) or, from a client
+ * that has not been issued one, the bare choice made at login. The token holds the same
+ * choice as one of its claims, so a hint is always recoverable.
+ */
 export function contextHint(req: Request): string | undefined {
-  return req.headers["x-context"] as string | undefined;
+  const header = req.headers['x-context'] as string | undefined;
+  if (!header) return undefined;
+  if (!looksLikeJwt(header)) return header;
+  return verifyContextToken(header)?.hint;
+}
+
+/** The context token on the request, when it is valid and was issued to this very user. */
+function presentedContext(req: Request): ContextClaims | null {
+  const claims = verifyContextToken(req.headers['x-context'] as string | undefined);
+  return claims && claims.sub === req.userId ? claims : null;
 }
 
 declare global {
@@ -90,7 +122,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     if (!header?.startsWith('Bearer ')) throw unauthorized();
 
     const payload = verifyAccessToken(header.slice(7));
-    const user = await User.findById(payload.sub);
+    const user = await loadUser(payload.sub);
 
     if (!user) throw unauthorized('User no longer exists');
     if (user.status === 'suspended') throw forbidden('This account has been suspended');
@@ -105,6 +137,147 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   }
 }
 
+// ── Resolving a context from the database ───────────────────────────────────
+//
+// The long way: the memberships, the agency, its plan and the seat's role. Run once when a
+// context token is issued, and on any request that arrives without a usable one.
+
+/** The agency, its plan and the seat's role, with the checks that apply to all of them. */
+async function resolveSeat(agencyId: string, membership: MembershipRecord) {
+  const [agency, role] = await Promise.all([loadAgency(agencyId), loadRole(String(membership.roleId))]);
+  if (!agency) throw forbidden('Agency not found');
+  if (!role) throw forbidden('Role not found');
+  if (agency.status === 'suspended') throw forbidden('This agency is suspended');
+
+  const plan = await loadPlan(String(agency.planId));
+
+  // The agency ceiling: what any sub-account beneath it may enable. Resolving it is
+  // idempotent, so a sub-account's modules can later be resolved against it directly.
+  const modules = resolveModules({
+    planModules: (plan?.modules ?? []) as ModuleKey[],
+    agency: {
+      enabled: agency.enabledModules as ModuleKey[],
+      grants: agency.moduleGrants as ModuleKey[],
+      denies: agency.moduleDenies as ModuleKey[],
+    },
+  });
+
+  const permissions = resolvePermissions({
+    rolePermissions: role.permissions as Permission[],
+    grant: membership.permissionOverrides?.grant as Permission[] | undefined,
+    deny: membership.permissionOverrides?.deny as Permission[] | undefined,
+  });
+
+  return { agency, modules, permissions };
+}
+
+export interface ResolvedAccountContext {
+  account: AccountRecord;
+  agency: AgencyRecord;
+  membership: MembershipRecord;
+  /** The agency ceiling. */
+  modules: ModuleKey[];
+  permissions: Permission[];
+}
+
+/**
+ * The seat a user holds in a sub-account, and everything that seat resolves to.
+ *
+ * Membership on the account itself, or on the agency above it — an agency admin works
+ * across every sub-account without a row per account. One person may hold several
+ * memberships that all reach this sub-account; the **strongest** wins unless the user
+ * chose otherwise at login (see `pickMembership`).
+ */
+export async function resolveAccountContext(
+  userId: string,
+  accountId: string,
+  hint: string | undefined,
+): Promise<ResolvedAccountContext> {
+  const [account, memberships] = await Promise.all([loadAccount(accountId), loadMemberships(userId)]);
+  if (!account) throw forbidden('Sub-account not found');
+
+  const candidates = memberships.filter(
+    (m) =>
+      (m.scope === 'account' && String(m.accountId) === accountId) ||
+      (m.scope === 'agency' && String(m.agencyId) === String(account.agencyId)) ||
+      m.scope === 'platform',
+  );
+  const membership = pickMembership(candidates, hint, accountId);
+  if (!membership) throw forbidden('You do not have access to this sub-account');
+
+  assertAccountOpen(account, membership.scope);
+
+  const seat = await resolveSeat(String(account.agencyId), membership);
+  return { account, membership, ...seat };
+}
+
+export interface ResolvedAgencyContext {
+  agency: AgencyRecord;
+  membership: MembershipRecord;
+  modules: ModuleKey[];
+  permissions: Permission[];
+}
+
+/**
+ * The agency seat a user holds, for the console.
+ *
+ * One person may hold an agency seat in more than one agency, so `requestedAgency` picks
+ * between them. It can only select a seat the user genuinely holds: naming an agency they
+ * have no seat in falls through to a platform membership if there is one, and otherwise
+ * to nothing. With no request, the oldest agency seat wins, which is the behaviour a
+ * single-agency user has always had.
+ */
+export async function resolveAgencyContext(
+  userId: string,
+  requestedAgency: string | undefined,
+): Promise<ResolvedAgencyContext> {
+  // 'agency' before 'platform', oldest seat first — the list arrives oldest first, and
+  // the sort is stable.
+  const seats = (await loadMemberships(userId))
+    .filter((m) => m.scope === 'agency' || m.scope === 'platform')
+    .sort((a, b) => a.scope.localeCompare(b.scope));
+
+  const membership = requestedAgency
+    ? (seats.find((m) => m.scope === 'agency' && String(m.agencyId) === requestedAgency) ??
+      seats.find((m) => m.scope === 'platform'))
+    : seats[0];
+  if (!membership) throw forbidden('This requires agency-level access');
+
+  // A platform membership carries no agencyId of its own, so it must name the agency
+  // it is acting on. Agency members always act on their own.
+  const agencyId = membership.scope === 'platform' ? requestedAgency : String(membership.agencyId);
+  if (!agencyId) throw forbidden('No agency selected for this request');
+
+  const seat = await resolveSeat(agencyId, membership);
+  return { membership, ...seat };
+}
+
+/**
+ * A paused or archived sub-account is closed to its own members.
+ *
+ * The status used to be a label: the record said "archived" and everything kept working.
+ * Agency and platform staff still get in, because somebody has to be able to open it to
+ * un-archive it.
+ */
+function assertAccountOpen(account: AccountRecord, scope: string) {
+  if (account.status !== 'active' && scope === 'account') {
+    throw forbidden(`This sub-account is ${account.status}. Ask your agency to reactivate it.`);
+  }
+}
+
+/** A sub-account's effective modules: its own toggles, within the agency ceiling. */
+function accountModules(account: AccountRecord, ceiling: ModuleKey[]): ModuleKey[] {
+  return resolveModules({
+    planModules: ceiling,
+    agency: { enabled: ceiling },
+    account: {
+      enabled: account.enabledModules as ModuleKey[],
+      grants: account.moduleGrants as ModuleKey[],
+      denies: account.moduleDenies as ModuleKey[],
+    },
+  });
+}
+
 /**
  * Stage 2 — resolve tenant context.
  *
@@ -112,6 +285,10 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
  * user is a member of it, then resolves the effective module set and permissions once and
  * pins them to the request. Everything downstream — including the Mongoose tenancy plugin —
  * reads from this context, so an unresolvable account means the request never touches data.
+ *
+ * With a context token for this sub-account (or for the agency above it) the seat is
+ * already settled, and the only read is the sub-account itself — its status and module
+ * toggles are the one thing that must not wait for a reissue.
  */
 export async function resolveTenant(req: Request, _res: Response, next: NextFunction) {
   try {
@@ -123,84 +300,40 @@ export async function resolveTenant(req: Request, _res: Response, next: NextFunc
 
     if (!accountId) throw forbidden('No sub-account selected for this request');
 
-    // Account, agency, plan and role are read through a short cache — see `core/cache`.
-    // The membership lookup below is not: revoking access must bite on the next request.
-    const account = await cached('Account', accountId, () => Account.findById(accountId).lean());
+    const claims = presentedContext(req);
+    const account = await loadAccount(accountId);
     if (!account) throw forbidden('Sub-account not found');
 
-    // Membership on the account itself, or on the agency above it — an agency admin
-    // works across every sub-account without a row per account.
-    /**
-     * One person may hold several memberships that all reach this sub-account — an
-     * agency seat and a per-account seat, say. The **strongest** wins.
-     *
-     * Sorting by scope name did the opposite: 'account' sorts before 'agency', so an agency
-     * owner who also held a sub-account seat was silently downgraded to it inside that
-     * account. Nobody should lose authority by being given an extra, lesser seat.
-     */
-    const candidates = await Membership.find({
-      userId: req.userId,
-      status: 'active',
-      $or: [
-        { scope: 'account', accountId },
-        { scope: 'agency', agencyId: account.agencyId },
-        { scope: 'platform' },
-      ],
-    });
+    let ctx: TenantContext;
 
-    const membership = pickMembership(candidates, contextHint(req), accountId);
-
-    if (!membership) throw forbidden('You do not have access to this sub-account');
-
-    /**
-     * A paused or archived sub-account is closed to its own members.
-     *
-     * The status used to be a label: the record said "archived" and everything kept
-     * working. Agency and platform staff still get in, because somebody has to be able to
-     * open it to un-archive it.
-     */
-    if (account.status !== 'active' && membership.scope === 'account') {
-      throw forbidden(`This sub-account is ${account.status}. Ask your agency to reactivate it.`);
+    if (
+      claims &&
+      claims.agencyId === String(account.agencyId) &&
+      (claims.scope === 'agency' || claims.accountId === accountId)
+    ) {
+      assertAccountOpen(account, claims.scope);
+      ctx = {
+        userId: req.userId,
+        agencyId: claims.agencyId,
+        accountId,
+        scope: claims.scope,
+        permissions: claims.permissions,
+        enabledModules: accountModules(account, claims.modules),
+      };
+    } else {
+      // No token, or one for somewhere else: resolve from the database. A token for a
+      // different sub-account is not an error — an agency owner's console token does not
+      // name one — it simply does not help here.
+      const resolved = await resolveAccountContext(req.userId, accountId, contextHint(req));
+      ctx = {
+        userId: req.userId,
+        agencyId: String(account.agencyId),
+        accountId,
+        scope: resolved.membership.scope as TenantContext['scope'],
+        permissions: resolved.permissions,
+        enabledModules: accountModules(account, resolved.modules),
+      };
     }
-
-    const [agency, role] = await Promise.all([
-      loadAgency(String(account.agencyId)),
-      loadRole(String(membership.roleId)),
-    ]);
-    if (!agency) throw forbidden('Agency not found');
-    if (!role) throw forbidden('Role not found');
-    if (agency.status === 'suspended') throw forbidden('This agency is suspended');
-
-    const plan = await loadPlan(String(agency.planId));
-
-    const enabledModules = resolveModules({
-      planModules: (plan?.modules ?? []) as ModuleKey[],
-      agency: {
-        enabled: agency.enabledModules as ModuleKey[],
-        grants: agency.moduleGrants as ModuleKey[],
-        denies: agency.moduleDenies as ModuleKey[],
-      },
-      account: {
-        enabled: account.enabledModules as ModuleKey[],
-        grants: account.moduleGrants as ModuleKey[],
-        denies: account.moduleDenies as ModuleKey[],
-      },
-    });
-
-    const permissions = resolvePermissions({
-      rolePermissions: role.permissions as Permission[],
-      grant: membership.permissionOverrides?.grant as Permission[] | undefined,
-      deny: membership.permissionOverrides?.deny as Permission[] | undefined,
-    });
-
-    const ctx: TenantContext = {
-      userId: req.userId,
-      agencyId: String(account.agencyId),
-      accountId: String(account._id),
-      scope: membership.scope as TenantContext['scope'],
-      permissions,
-      enabledModules,
-    };
 
     req.tenant = ctx;
 
@@ -229,80 +362,43 @@ export async function resolveTenant(req: Request, _res: Response, next: NextFunc
  *
  * Requires an agency- or platform-scoped membership: an `account`-scoped user has no
  * business reading across the agency, however many accounts they belong to.
+ *
+ * With an agency context token this reads nothing at all.
  */
 export async function resolveAgency(req: Request, _res: Response, next: NextFunction) {
   try {
     if (!req.userId) throw unauthorized();
 
-    const seats = await Membership.find({
-      userId: req.userId,
-      status: 'active',
-      scope: { $in: ['agency', 'platform'] },
-    }).sort({ scope: 1, createdAt: 1 }); // 'agency' before 'platform', oldest seat first
-
     const requestedAgency = req.headers['x-agency-id'] as string | undefined;
+    const claims = presentedContext(req);
 
-    /**
-     * Which seat this request runs under.
-     *
-     * One person may hold an agency seat in more than one agency, so `X-Agency-Id` picks
-     * between them. It can only select a seat the user genuinely holds: naming an agency
-     * they have no seat in falls through to a platform membership if there is one, and
-     * otherwise to nothing. With no header, the oldest agency seat wins, which is the
-     * behaviour a single-agency user has always had.
-     */
-    const membership = requestedAgency
-      ? (seats.find((m) => m.scope === 'agency' && String(m.agencyId) === requestedAgency) ??
-        seats.find((m) => m.scope === 'platform'))
-      : seats[0];
+    let ctx: TenantContext;
 
-    if (!membership) {
-      throw forbidden('This requires agency-level access');
+    if (
+      claims &&
+      claims.scope === 'agency' &&
+      (!requestedAgency || requestedAgency === claims.agencyId)
+    ) {
+      ctx = {
+        userId: req.userId,
+        agencyId: claims.agencyId,
+        // Intentionally absent — this is what widens the plugin's scope to the agency.
+        accountId: undefined,
+        scope: 'agency',
+        permissions: claims.permissions,
+        enabledModules: claims.modules,
+      };
+    } else {
+      const resolved = await resolveAgencyContext(req.userId, requestedAgency);
+      ctx = {
+        userId: req.userId,
+        agencyId: String(resolved.agency._id),
+        accountId: undefined,
+        scope: resolved.membership.scope as TenantContext['scope'],
+        permissions: resolved.permissions,
+        enabledModules: resolved.modules,
+      };
     }
-
-    // A platform membership carries no agencyId of its own, so it must name the agency
-    // it is acting on. Agency members always act on their own.
-    const agencyId =
-      membership.scope === 'platform' ? requestedAgency : String(membership.agencyId);
-
-    if (!agencyId) throw forbidden('No agency selected for this request');
-
-    const [agency, role] = await Promise.all([
-      loadAgency(agencyId),
-      loadRole(String(membership.roleId)),
-    ]);
-    if (!agency) throw forbidden('Agency not found');
-    if (!role) throw forbidden('Role not found');
-    if (agency.status === 'suspended') throw forbidden('This agency is suspended');
-
-    const plan = await loadPlan(String(agency.planId));
-
-    // The agency ceiling — what any sub-account beneath it may have — resolved without
-    // an account layer.
-    const enabledModules = resolveModules({
-      planModules: (plan?.modules ?? []) as ModuleKey[],
-      agency: {
-        enabled: agency.enabledModules as ModuleKey[],
-        grants: agency.moduleGrants as ModuleKey[],
-        denies: agency.moduleDenies as ModuleKey[],
-      },
-    });
-
-    const permissions = resolvePermissions({
-      rolePermissions: role.permissions as Permission[],
-      grant: membership.permissionOverrides?.grant as Permission[] | undefined,
-      deny: membership.permissionOverrides?.deny as Permission[] | undefined,
-    });
-
-    const ctx: TenantContext = {
-      userId: req.userId,
-      agencyId: String(agency._id),
-      // Intentionally absent — this is what widens the plugin's scope to the agency.
-      accountId: undefined,
-      scope: membership.scope as TenantContext['scope'],
-      permissions,
-      enabledModules,
-    };
 
     req.tenant = ctx;
     runInTenantContext(ctx, () => next());

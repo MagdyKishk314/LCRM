@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { Account, ModuleKey, Role } from '@/shared';
 import { apiSend } from '@/lib/api/server';
+import { refreshContext } from '@/lib/api/context';
 import { action, type ActionResult } from '@/lib/api/errors';
 
 /**
@@ -135,6 +136,9 @@ export async function saveRole(
       body: roleId ? input : { ...input, scope: 'account' },
     });
 
+    // Permissions are settled in the context token; reissue so the editor's own change is
+    // not hidden from them until the next scheduled reissue.
+    await refreshContext();
     revalidatePath(`/app/${accountId}/settings`, 'layout');
     revalidatePath('/agency', 'layout');
     return role;

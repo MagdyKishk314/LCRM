@@ -27,7 +27,7 @@ export default async function AgencyAccountOverviewPage({
     <div className="grid grid-cols-1 gap-4 px-6 pt-5 lg:grid-cols-3">
       <div className="space-y-4 lg:col-span-2">
         {/*
-          Administrative facts only. What is inside this client's CRM — contacts,
+          Administrative facts only. What is inside this client's account — contacts,
           pipeline — is theirs to read in their own account, not a number to compare
           against other clients from here.
         */}

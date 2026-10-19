@@ -1,8 +1,8 @@
-import mongoose from 'mongoose';
+﻿import mongoose from 'mongoose';
 import { env } from '../config/env';
 
 /**
- * One connection per Mongoose instance — and one Mongoose instance at a time.
+ * One connection per Mongoose instance â€” and one Mongoose instance at a time.
  *
  * In development the web app recompiles the API whenever a file under `src/server` changes,
  * and the recompiled module graph carries its own copy of Mongoose with no connection.
@@ -10,7 +10,7 @@ import { env } from '../config/env';
  * the symptom is an API that answered a moment ago and now hangs. So:
  *
  *   - the connection belongs to the Mongoose instance that opened it, and
- *     `connectDatabase()` returns at once when this instance is already connected —
+ *     `connectDatabase()` returns at once when this instance is already connected â€”
  *     which makes it safe to call on every request;
  *   - when a new instance appears, the previous one's connection is closed, so a long
  *     editing session does not leave a pool open per save.
@@ -49,8 +49,8 @@ async function openConnection(): Promise<void> {
     versionKey: false,
     transform: (_doc, ret: Record<string, unknown>) => {
       // Only rewrite when there is an `_id` to rewrite. Subdocuments declared with
-      // `{ _id: false }` carry their own string `id` — pipeline stages do, and every
-      // opportunity references it — so an unconditional assignment overwrote a real
+      // `{ _id: false }` carry their own string `id` â€” pipeline stages do, and every
+      // opportunity references it â€” so an unconditional assignment overwrote a real
       // identifier with `undefined` and silently detached every card from its stage.
       if (ret._id !== undefined) {
         ret.id = ret._id;
@@ -65,10 +65,10 @@ async function openConnection(): Promise<void> {
   // Atlas failovers and free-tier cold starts, and the pool is capped so a burst of
   // requests cannot exhaust the cluster's connection limit.
   mongoose.connection.on('disconnected', () => {
-    console.warn('[db] disconnected from Atlas — the driver will retry');
+    console.warn('[db] disconnected from Atlas â€” the driver will retry');
   });
   mongoose.connection.on('reconnected', () => {
-    console.log('[db] reconnected to Atlas');
+    console.log('[db] reconnected to the database');
   });
 
   /**
@@ -76,7 +76,7 @@ async function openConnection(): Promise<void> {
    *
    * One long-lived server can afford a real pool. On a serverless platform there may be
    * dozens of instances at once, each with its own pool, so the same numbers multiply into
-   * Atlas's connection cap — the usual way a Mongoose app dies under load there. A small
+   * Atlas's connection cap â€” the usual way a Mongoose app dies under load there. A small
    * pool and no minimum keeps a cold instance cheap.
    */
   const serverless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
@@ -85,7 +85,10 @@ async function openConnection(): Promise<void> {
     await mongoose.connect(env.MONGODB_URI, {
       serverSelectionTimeoutMS: 15_000,
       maxPoolSize: serverless ? 5 : 20,
-      minPoolSize: serverless ? 0 : 2,
+      // Opening a connection to Atlas is a TLS handshake plus authentication â€” most of a
+      // second from far away. A page asks several things at once, so enough connections
+      // are kept open that none of them has to wait for a new one.
+      minPoolSize: serverless ? 0 : 8,
       retryWrites: true,
     });
   } catch (err) {

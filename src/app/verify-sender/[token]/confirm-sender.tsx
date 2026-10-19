@@ -44,14 +44,14 @@ export function ConfirmSender({ token }: { token: string }) {
             <p>{error}</p>
             <p className="mt-1 text-fg-muted">
               Links work once and expire after seven days. Whoever added this address can send
-              a new one from Email in the CRM.
+              a new one from Email in LandCaller.
             </p>
           </div>
         </div>
       )}
 
       <p className="mb-5 text-[13px] leading-relaxed text-fg-muted">
-        Someone asked to send email from this address through LandCaller CRM. Confirm only if
+        Someone asked to send email from this address through LandCaller. Confirm only if
         that was you, or someone you work with.
       </p>
 

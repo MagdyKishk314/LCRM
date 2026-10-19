@@ -19,6 +19,15 @@ const nextConfig: NextConfig = {
      * src/shared/limits.test.ts asserts the two agree.
      */
     serverActions: { bodySizeLimit: '72mb' },
+    /**
+     * Keep a visited page in the browser for half a minute.
+     *
+     * Every page here is dynamic, and by default Next refetches a dynamic page on each
+     * visit — going back to a list you left five seconds ago waited on the server again.
+     * With this, returning within the window is instant. Server actions that change data
+     * call `revalidatePath`, which clears this cache, so an edit is never hidden by it.
+     */
+    staleTimes: { dynamic: 30, static: 180 },
   },
   /**
    * `standalone` produces the self-contained server the Dockerfile and the VPS use.

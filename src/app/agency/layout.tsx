@@ -59,7 +59,7 @@ export default async function AgencyLayout({ children }: { children: React.React
               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
             >
               <ArrowLeft size={14} />
-              Back to the CRM
+              Back to the app
             </Link>
           </div>
         )}
@@ -80,7 +80,7 @@ function NoAgencyAccess() {
           access is limited to individual sub-accounts.
         </p>
         <Link href="/" className="mt-4 inline-block text-sm font-medium text-brand-text hover:underline">
-          Back to the CRM
+          Back to the app
         </Link>
       </div>
     </main>

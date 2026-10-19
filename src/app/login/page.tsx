@@ -25,7 +25,7 @@ export default async function LoginPage() {
             <Signal size={22} className="text-brand-fg" />
           </div>
           <h1 className="font-display text-[26px] leading-tight text-fg">Sign in to LandCaller</h1>
-          <p className="mt-1 text-sm text-fg-muted">Land investing CRM</p>
+          <p className="mt-1 text-sm text-fg-muted">Land investing, organised</p>
         </div>
 
         <React.Suspense fallback={<FormSkeleton />}>

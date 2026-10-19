@@ -173,7 +173,7 @@ export const MODULE_CATALOG: ModuleManifest[] = [
     navGroup: 'Main',
     name: 'Pipelines',
     description:
-      'Opportunity pipelines with drag-and-drop stages and forecasting. Always on — a CRM without a pipeline is a contact list.',
+      'Opportunity pipelines with drag-and-drop stages and forecasting. Always on — without a pipeline this is only a contact list.',
     icon: 'KanbanSquare',
     version: '1.0.0',
     status: 'stable',

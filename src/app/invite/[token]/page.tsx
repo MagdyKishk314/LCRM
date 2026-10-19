@@ -45,7 +45,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
             {preview ? `Welcome, ${preview.firstName}` : 'Invite link'}
           </h1>
           <p className="mt-1 text-sm text-fg-muted">
-            {preview ? 'Choose a password to finish setting up your account.' : 'LandCaller CRM'}
+            {preview ? 'Choose a password to finish setting up your account.' : 'LandCaller'}
           </p>
         </div>
 

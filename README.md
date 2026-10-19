@@ -1,6 +1,6 @@
-# LandCaller CRM
+# LandCaller
 
-Modular, multi-tenant CRM for land-investing teams — replacing Zoho Suite and GoHighLevel.
+Modular, multi-tenant contacts, pipelines and email for land-investing teams.
 Runs at `crm.landcaller.com`.
 
 - **[docs/PLAN.md](docs/PLAN.md)** — architecture, tenancy model, module system, roadmap
@@ -51,9 +51,24 @@ echo "JWT_ACCESS_SECRET=$(openssl rand -hex 48)"  >> .env
 echo "JWT_REFRESH_SECRET=$(openssl rand -hex 48)" >> .env
 ```
 
-The database is **MongoDB Atlas** — there is nothing to run locally. Create a cluster,
-add your IP under Network Access, and put the connection string in `.env`, **including the
-database name**:
+The deployed database is **MongoDB Atlas**. For development, run MongoDB on your own
+machine instead — every query to Atlas crosses the internet (a hundred-odd milliseconds
+each, and a page asks for several), while a local server answers in a millisecond. No
+install and no Docker: this starts the `mongod` binary the tests download, keeping its data
+in `.mongo-data/`.
+
+```bash
+npm run db:local       # leave this running in its own terminal
+```
+
+and in `.env`:
+
+```
+MONGODB_URI=mongodb://127.0.0.1:27017/landcaller
+```
+
+To work against Atlas instead, create a cluster, add your IP under Network Access, and put
+the connection string in `.env`, **including the database name**:
 
 ```
 MONGODB_URI=mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/landcaller?retryWrites=true&w=majority
@@ -68,6 +83,13 @@ Then:
 npm run sync-indexes   # build the indexes
 npm run seed           # creates the LandCaller agency + 2 sub-accounts + sample data
 npm run dev            # http://localhost:3000
+```
+
+To bring a deployment's data down to the local server:
+
+```bash
+npm run db:copy -- --from "mongodb+srv://USER:PASSWORD@.../landcaller" --to mongodb://127.0.0.1:27017/landcaller
+npm run sync-indexes
 ```
 
 Seeded logins (**change before any real deployment**):
@@ -92,6 +114,8 @@ npm run lint
 npm test               # every test; the API tests boot against an in-memory MongoDB
 npm run seed           # reset + reseed dev data
 npm run sync-indexes   # bring indexes in line with the schemas (safe to re-run)
+npm run db:local       # a MongoDB server on this machine, data in .mongo-data/
+npm run db:copy        # copy one database into another (--from <uri> --to <uri>)
 npm run migrate:fix-plan -- --apply      # one-off data migrations; dry run without --apply
 npm run migrate:contacts-ii -- --apply
 ```
